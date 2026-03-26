@@ -499,12 +499,18 @@ function loadKanban(vault) {
   const fp = path.join(vault.obsidianDir, KANBAN_FILE);
   const content = readFile(fp);
   if (!content) return {};
-  try { return JSON.parse(content); } catch { return {}; }
+  try {
+    const parsed = JSON.parse(content);
+    // Fix #6: 解包 {version, columns} 格式
+    if (parsed.columns) return parsed.columns;
+    return parsed;
+  } catch { return {}; }
 }
 
 function saveKanban(vault, data) {
   ensureDir(vault.obsidianDir);
-  writeFile(path.join(vault.obsidianDir, KANBAN_FILE), JSON.stringify(data, null, 2));
+  // Fix #6: 加版本号，支持未来升级
+  writeFile(path.join(vault.obsidianDir, KANBAN_FILE), JSON.stringify({ version: 1, columns: data }, null, 2));
 }
 
 function cmdKanban(vaultPath) {
@@ -551,6 +557,13 @@ function cmdKanbanAdd(noteName, col, vaultPath) {
   }
 
   const kanban = loadKanban(vault);
+  // Fix #1: 防止同一笔记重复添加
+  for (const c of KANBAN_COLUMNS) {
+    if (kanban[c] && kanban[c].findIndex(i => i.note === noteName) >= 0) {
+      error(`"${noteName}" 已在 ${c} 列，不能重复添加`);
+      return 1;
+    }
+  }
   if (!kanban[col]) kanban[col] = [];
   kanban[col].push({ note: noteName, added: new Date().toISOString() });
   saveKanban(vault, kanban);
@@ -562,6 +575,10 @@ function cmdKanbanAdd(noteName, col, vaultPath) {
 function cmdKanbanMove(noteName, fromCol, toCol, vaultPath) {
   const vault = getVault(vaultPath);
   if (!vault) { error(`Vault 不存在: ${vaultPath}`); return 1; }
+
+  // Fix #2: 验证列名合法性
+  if (!KANBAN_COLUMNS.includes(fromCol)) { error(`无效列名: ${fromCol}`); return 1; }
+  if (!KANBAN_COLUMNS.includes(toCol))   { error(`无效列名: ${toCol}`);   return 1; }
 
   const kanban = loadKanban(vault);
   const from = kanban[fromCol] || [];
@@ -631,7 +648,12 @@ function buildReview(vault, title, dateRange, type) {
 
   const topTags = Object.entries(byTag).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const days = Object.keys(byDay).sort();
-  const totalWords = notes.reduce((s, n) => s + Math.round(n.size / 5), 0); // 估算字数
+  let totalWords = 0;
+  for (const note of notes) {
+    const fp2 = path.join(vault.root, note.path);
+    const c2 = readFile(fp2);
+    if (c2) totalWords += c2.replace(/[#*`\[\]]/g, '').length;
+  }
 
   const body = [
     `---`,
