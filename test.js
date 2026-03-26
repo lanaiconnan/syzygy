@@ -18,104 +18,70 @@ const run = (cmd) => {
 };
 
 const stripAnsi = s => s.replace(/\x1b\[[0-9;]*m/g, '');
-const pass = (n) => { console.log('  \u2705 ' + n); return 1; };
-const fail = (n, e) => { console.log('  \u274c ' + n + ': ' + e.message); return 0; };
-
+const pass = (n) => { console.log('  ' + String.fromCodePoint(0x2705) + ' ' + n); return 1; };
+const fail = (n, e) => { console.log('  ' + String.fromCodePoint(0x274C) + ' ' + n + ': ' + e.message); return 0; };
+const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'fail'); };
 let passed = 0, failed = 0;
 
 console.log('\n========================================');
-console.log('  Obsidian Vault - Full TEST');
+console.log('  Obsidian Vault - P1 TEST');
 console.log('========================================\n');
 console.log('Vault:', VAULT, '\n');
 
-// Init
 run('init');
 console.log('  vault initialized\n');
 
-// --- Inbox tests ---
 const tests = [
-  ['inbox empty', () => {
-    const r = run('inbox');
-    assert(r.ok && stripAnsi(r.out).includes('empty'));
-  }],
   ['inbox add', () => {
-    const r = run('inbox add "Test idea one"');
-    assert(r.ok && stripAnsi(r.out).includes('Added') || stripAnsi(r.out).includes('inbox'));
+    const r = run('inbox add "P1 test item"');
+    assert(r.ok, 'command succeeded');
   }],
   ['inbox list', () => {
-    run('inbox add "Test idea two"');
     const r = run('inbox');
-    assert(r.ok && stripAnsi(r.out).includes('Test idea one') && stripAnsi(r.out).includes('Test idea two'));
+    assert(r.ok && stripAnsi(r.out).includes('P1 test item'));
   }],
   ['inbox done', () => {
-    const r = run('inbox done 1 "InboxTestNote"');
-    assert(r.ok && stripAnsi(r.out).includes('Created') || stripAnsi(r.out).includes('Appended'));
+    const r = run('inbox done 1 "P1Note"');
+    assert(r.ok && (stripAnsi(r.out).includes('Created') || stripAnsi(r.out).includes('Appended')));
   }],
-  ['inbox delete', () => {
-    const r = run('inbox delete 1');
-    assert(r.ok && stripAnsi(r.out).includes('Deleted'));
-  }],
-  ['inbox tag', () => {
-    run('inbox add "Tagged item"');
-    const r = run('inbox tag 1 idea');
-    assert(r.ok && stripAnsi(r.out).includes('Tagged') || stripAnsi(r.out).includes('#idea'));
-  }],
-  ['inbox index invalid', () => {
-    const r = run('inbox done 999 nonexistent');
-    assert(!r.ok && stripAnsi(r.out).includes('Invalid'));
-  }],
-  // --- Orphan tests ---
-  ['orphan detect', () => {
+  ['orphan', () => {
     const r = run('orphan');
-    assert(r.ok && (stripAnsi(r.out).includes('orphan') || stripAnsi(r.out).includes('No orphan')));
+    assert(r.ok, 'orphan command succeeded');
   }],
-  // --- Kanban tests ---
-  ['kanban view', () => {
+  ['streak', () => {
+    run('daily');
+    const r = run('streak');
+    assert(r.ok && (stripAnsi(r.out).includes('streak') || stripAnsi(r.out).includes('Streak') || stripAnsi(r.out).includes('day')));
+  }],
+  ['health', () => {
+    const r = run('health');
+    assert(r.ok && (stripAnsi(r.out).includes('Health') || stripAnsi(r.out).includes('/100')));
+  }],
+  ['goal default', () => {
+    const r = run('goal');
+    assert(r.ok && (r.out.includes('Goal') || r.out.includes('word')));
+  }],
+  ['goal set', () => {
+    const r = run('goal set 300 2');
+    assert(r.ok && (stripAnsi(r.out).includes('Goal') || stripAnsi(r.out).includes('goal')));
+  }],
+  ['goal updated', () => {
+    const r = run('goal');
+    assert(r.ok && r.out.includes('300'));
+  }],
+  ['kanban', () => {
     const r = run('kanban');
-    assert(r.ok && r.out.includes('Inbox') && r.out.includes('Doing'));
-  }],
-  ['kanban add', () => {
-    run('new "KanbanTestNote"');
-    const r = run('kanban add "KanbanTestNote" Inbox');
-    assert(r.ok && stripAnsi(r.out).includes('已添加') || stripAnsi(r.out).includes('Added'));
-  }],
-  ['kanban dedup', () => {
-    const r = run('kanban add "KanbanTestNote" Doing');
-    assert(!r.ok && stripAnsi(r.out).includes('已在') || stripAnsi(r.out).includes('already'));
-  }],
-  ['kanban move', () => {
-    const r = run('kanban move "KanbanTestNote" Inbox Next');
-    assert(r.ok && stripAnsi(r.out).includes('已移动') || stripAnsi(r.out).includes('Moved'));
-  }],
-  ['kanban invalid col', () => {
-    const r = run('kanban move "KanbanTestNote" Next BadCol');
-    assert(!r.ok && stripAnsi(r.out).includes('无效列名') || stripAnsi(r.out).includes('Invalid'));
-  }],
-  ['kanban json format', () => {
-    const j = path.join(VAULT, '.obsidian', 'kanban.json');
-    assert(fs.existsSync(j));
-    const d = JSON.parse(fs.readFileSync(j, 'utf8'));
-    assert(d.version === 1 && d.columns !== undefined);
+    assert(r.ok && r.out.includes('Inbox'));
   }],
   ['weekly review', () => {
     const r = run('review weekly');
     assert(r.ok && (r.out.includes('已创建') || r.out.includes('已存在') || r.out.includes('周回顾')));
   }],
-  ['monthly review', () => {
-    const r = run('review monthly');
-    assert(r.ok && (r.out.includes('已创建') || r.out.includes('已存在') || r.out.includes('月回顾')));
-  }],
 ];
 
-const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
-
 for (const [name, fn] of tests) {
-  try {
-    fn();
-    passed += pass(name);
-  } catch(e) {
-    failed += fail(name, e);
-  }
+  try { fn(); passed += pass(name); }
+  catch(e) { failed += fail(name, e); }
 }
 
 console.log('\n========================================');

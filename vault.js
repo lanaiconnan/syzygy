@@ -878,6 +878,231 @@ function cmdReview(period, vaultPath) {
   return 0;
 }
 
+
+// ============ 连续打卡 ============
+
+function cmdStreak(vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+
+  const index = loadIndex(vault);
+  const dailyDir = path.join(vault.dailyDir);
+
+  // 收集所有 daily 笔记的修改时间
+  if (!fs.existsSync(dailyDir)) {
+    log("No daily notes yet. Use: vault daily");
+    return 0;
+  }
+
+  const files = fs.readdirSync(dailyDir).filter(f => f.endsWith('.md'));
+  if (files.length === 0) {
+    log("No daily notes yet");
+    return 0;
+  }
+
+  // 按日期排序
+  const dates = files
+    .filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
+    .map(f => f.replace('.md', ''))
+    .sort()
+    .reverse();
+
+  if (dates.length === 0) {
+    log("No daily notes yet");
+    return 0;
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+  // 计算连续天数（从今天或昨天往前数）
+  let streak = 0;
+  let checkDate = dates.includes(today) ? today : yesterday;
+  if (!dates.includes(today) && !dates.includes(yesterday)) {
+    checkDate = dates[0]; // 最近的一天
+  }
+
+  for (const date of dates) {
+    if (date === checkDate) {
+      streak++;
+      const d = new Date(checkDate);
+      d.setDate(d.getDate() - 1);
+      checkDate = d.toISOString().split('T')[0];
+    } else if (date < checkDate) {
+      break;
+    }
+  }
+
+  const totalDays = dates.length;
+  const latest = dates[0];
+  const latestAge = Math.round((Date.now() - new Date(latest).getTime()) / 86400000);
+
+  log("🔥 Daily Note Streak");
+  log("  Current streak: " + streak + " day(s)");
+  log("  Total daily notes: " + totalDays);
+  if (latestAge === 0) log("  Latest: today");
+  else if (latestAge === 1) log("  Latest: yesterday");
+  else log("  Latest: " + latest + " (" + latestAge + " days ago)");
+
+  if (streak >= 7) log("  🏆 Week warrior!");
+  if (streak >= 30) log("  🏆 Month master!");
+  if (latestAge > 1) log("  ⚠️  Streak broken! Write today's note to restart.");
+
+  return 0;
+}
+
+// ============ 知识库健康分 ============
+
+function cmdHealth(vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const index = loadIndex(vault);
+
+  const notes = Object.values(index.notes);
+  const totalNotes = notes.length;
+
+  if (totalNotes === 0) {
+    log("Knowledge base is empty");
+    return 0;
+  }
+
+  // 各项指标
+  const totalLinks = notes.reduce((s, n) => s + n.links, 0);
+  const avgLinks = totalLinks / totalNotes;
+  const totalTags = Object.keys(index.tags).length;
+  const totalBacklinks = Object.keys(index.backlinks).length;
+
+  // 孤立笔记
+  const orphans = notes.filter(n => {
+    const hasBacklinks = (index.backlinks[n.path.replace(/.*\//, '')] || []).length > 0;
+    return !hasBacklinks && n.links === 0;
+  });
+  const orphanCount = orphans.length;
+
+  // 计算健康分（100分制）
+  let score = 100;
+
+  // 连接密度（20分）：avg links 越高越好
+  if (avgLinks < 0.5) score -= 20;
+  else if (avgLinks < 1.0) score -= 10;
+  else if (avgLinks >= 2.0) score += 5;
+
+  // 孤立笔记（30分）
+  const orphanRatio = orphanCount / totalNotes;
+  if (orphanRatio > 0.5) score -= 30;
+  else if (orphanRatio > 0.3) score -= 20;
+  else if (orphanRatio > 0.1) score -= 10;
+
+  // 标签覆盖率（20分）
+  const taggedNotes = notes.filter(n => n.tags.length > 0).length;
+  const tagRatio = taggedNotes / totalNotes;
+  if (tagRatio < 0.1) score -= 20;
+  else if (tagRatio < 0.3) score -= 10;
+  else if (tagRatio >= 0.5) score += 5;
+
+  // 反向链接（15分）：有双向链接的笔记越多越好
+  const bidirectional = notes.filter(n => {
+    const bl = index.backlinks[n.path.replace(/.*\//, '')] || [];
+    return bl.length > 0;
+  }).length;
+  if (bidirectional / totalNotes < 0.1) score -= 15;
+  else if (bidirectional / totalNotes < 0.3) score -= 8;
+
+  // 定期回顾（15分）
+  const weeklyOrMonthly = notes.filter(n =>
+    n.path.includes('weekly') || n.path.includes('monthly')
+  ).length;
+  if (weeklyOrMonthly === 0) score -= 15;
+  else if (weeklyOrMonthly < 3) score -= 5;
+
+  score = Math.max(0, Math.min(100, score));
+
+  const grade = score >= 90 ? "A" : score >= 75 ? "B" : score >= 60 ? "C" : score >= 40 ? "D" : "F";
+  const gradeIcon = grade === "A" ? "🌟" : grade === "B" ? "✨" : grade === "C" ? "👍" : grade === "D" ? "⚠️" : "🔴";
+
+  log("📊 Knowledge Base Health: " + score + "/100 " + gradeIcon + " (" + grade + ")");
+  log("");
+  log("  📄 Total notes:    " + totalNotes);
+  log("  🔗 Total links:   " + totalLinks + " (avg " + avgLinks.toFixed(1) + "/note)");
+  log("  🏷️  Tags:          " + totalTags + " tags across " + taggedNotes + " notes");
+  log("  🕳️  Orphans:       " + orphanCount + " (" + Math.round(orphanRatio * 100) + "%)");
+  log("  ↩️  Bidirectional: " + bidirectional + " notes");
+  log("  📅 Reviews:       " + weeklyOrMonthly + " review notes");
+
+  log("");
+  if (score >= 90) log("  🌟 Excellent! Your knowledge base is thriving.");
+  else if (score >= 75) log("  ✨ Good! Some areas to improve.");
+  else if (score >= 60) log("  👍 Fair. Focus on connecting notes and adding tags.");
+  else log("  ⚠️  Needs attention. Start by linking orphan notes.");
+
+  return 0;
+}
+
+// ============ 写作目标 ============
+
+const GOAL_FILE = 'goals.json';
+
+function loadGoals(vault) {
+  const fp = path.join(vault.obsidianDir, GOAL_FILE);
+  const content = readFile(fp);
+  if (!content) return { wordsGoal: 500, notesGoal: 1, period: 'daily' };
+  try { return JSON.parse(content); } catch { return { wordsGoal: 500, notesGoal: 1, period: 'daily' }; }
+}
+
+function saveGoals(vault, goals) {
+  ensureDir(vault.obsidianDir);
+  writeFile(path.join(vault.obsidianDir, GOAL_FILE), JSON.stringify(goals, null, 2));
+}
+
+function cmdGoal(vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const goals = loadGoals(vault);
+
+  const today = new Date().toISOString().split('T')[0];
+  const dailyDir = path.join(vault.dailyDir, today + '.md');
+
+  let todayWords = 0;
+  let todayNotes = 0;
+
+  if (fs.existsSync(dailyDir)) {
+    const content = readFile(dailyDir);
+    todayWords = content ? content.replace(/[#*`\[\]]/g, '').length : 0;
+    todayNotes = 1;
+  }
+
+  const wordsProgress = Math.round(todayWords / goals.wordsGoal * 100);
+  const notesProgress = Math.round(todayNotes / goals.notesGoal * 100);
+  const overall = Math.round((wordsProgress + notesProgress) / 2);
+
+  const icon = overall >= 100 ? "🎯" : overall >= 50 ? "🔥" : "📝";
+
+  log(icon + " Writing Goal (" + today + ")");
+  log("");
+  log("  📝 Words today:  " + todayWords + " / " + goals.wordsGoal + " (" + wordsProgress + "%)");
+  log("  📄 Notes today: " + todayNotes + " / " + goals.notesGoal + " (" + notesProgress + "%)");
+  log("  Overall: " + overall + "%");
+
+  if (overall >= 100) log("  🎉 Goal achieved!");
+  else log("  Keep going! " + (goals.wordsGoal - todayWords) + " words to go.");
+
+  log("");
+  log("  Set goals: vault goal set <words> <notes>");
+  return 0;
+}
+
+function cmdGoalSet(wordsGoal, notesGoal, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  let w = parseInt(wordsGoal); if (isNaN(w) || w <= 0) w = 500;
+  let n = parseInt(notesGoal); if (isNaN(n) || n <= 0) n = 1;
+  const goals = { wordsGoal: w, notesGoal: n, period: 'daily' };
+  saveGoals(vault, goals);
+  log("Goal set: " + w + " words/day, " + n + " note(s)/day");
+  return 0;
+}
+
+
 function cmdStat(vaultPath) {
   const vault = getVault(vaultPath);
   if (!vault) {
@@ -949,7 +1174,11 @@ function main() {
   vault inbox done <N> [笔记名] [vault]  整理第 N 条到笔记
   vault inbox delete <N> [vault]         删除第 N 条
   vault inbox tag <N> <标签> [vault]     标记第 N 条
-  vault orphan [vault]                     孤立笔记检测
+  vault streak [vault]                    连续打卡天数
+  vault health [vault]                   知识库健康分
+  vault goal [vault]                    写作目标进度
+  vault goal set <字数> <篇数> [vault] 设置目标
+  vault orphan [vault]                   孤立笔记检测
   vault kanban [vault]                    看板视图
   vault kanban add <笔记> <列> [vault]  添加笔记到列
   vault kanban move <笔记> <从> <到> [vault] 移动笔记
@@ -983,6 +1212,12 @@ function main() {
         if (rawNoteArgs[0] === 'delete') return cmdInboxDelete(rawNoteArgs[1] || '', vaultPath);
         if (rawNoteArgs[0] === 'tag') return cmdInboxTag(rawNoteArgs[1] || '', rawNoteArgs[2], vaultPath);
         return cmdInbox(vaultPath);
+      }
+      case 'streak':    return cmdStreak(vaultPath);
+      case 'health':    return cmdHealth(vaultPath);
+      case 'goal': {
+        if (rawNoteArgs[0] === 'set') return cmdGoalSet(rawNoteArgs[1] || '', rawNoteArgs[2] || '', vaultPath);
+        return cmdGoal(vaultPath);
       }
       case 'orphan':    return cmdOrphan(vaultPath);
       case 'review':    return cmdReview(note || 'weekly', vaultPath);
