@@ -301,6 +301,136 @@ type: daily
   return 0;
 }
 
+
+// ============ Inbox 收集箱 ============
+
+const INBOX_FILE = 'inbox.json';
+
+function loadInbox(vault) {
+  const fp = path.join(vault.obsidianDir, INBOX_FILE);
+  const content = readFile(fp);
+  if (!content) return [];
+  try { return JSON.parse(content).items || []; } catch { return []; }
+}
+
+function saveInbox(vault, items) {
+  ensureDir(vault.obsidianDir);
+  writeFile(path.join(vault.obsidianDir, INBOX_FILE), JSON.stringify({ version: 1, items }, null, 2));
+}
+
+function cmdInbox(vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const items = loadInbox(vault);
+  if (items.length === 0) {
+    log("Inbox is empty. Use: vault inbox add <content>");
+    return 0;
+  }
+  log("Inbox (" + items.length + " items)");
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    log("  " + (i + 1) + ". " + item.content);
+    const date = new Date(item.created).toLocaleDateString("zh-CN");
+    log("     " + date + (item.tag ? "  #" + item.tag : ""));
+  }
+  log("");
+  log("  inbox add <content>   - add item");
+  log("  inbox done <N> [note] - organize to note");
+  log("  inbox delete <N>      - delete");
+  log("  inbox tag <N> <tag>   - tag");
+  return 0;
+}
+
+function cmdInboxAdd(content, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!content || content.trim() === "") { error("Content cannot be empty"); return 1; }
+  const items = loadInbox(vault);
+  items.push({ content: content.trim(), created: new Date().toISOString(), tag: null });
+  saveInbox(vault, items);
+  log("Added to inbox");
+  return 0;
+}
+
+function cmdInboxDone(index, noteName, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const items = loadInbox(vault);
+  const idx = parseInt(index) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= items.length) { error("Invalid index: " + index); return 1; }
+  const item = items[idx];
+  const noteIdx = loadIndex(vault);
+  let fp, title;
+  if (noteName && noteIdx.notes[noteName]) {
+    title = noteName;
+    fp = path.join(vault.root, noteIdx.notes[noteName].path);
+    const existing = readFile(fp) || "";
+    const sep = "\n\n---\n\n" + item.content;
+    writeFile(fp, existing + sep);
+    log("Appended to [[" + title + "]]");
+  } else {
+    title = noteName || item.content.split(" ")[0].substring(0, 20).replace(/[^\w一-鿿]/g, "-");
+    fp = path.join(vault.notesDir, title + ".md");
+    if (fs.existsSync(fp)) fp = path.join(vault.notesDir, title + "-" + Date.now() + ".md");
+    const body = "# " + title + "\n\n" + item.content + "\n\n---\nsource: Inbox " + new Date().toLocaleDateString("zh-CN");
+    writeFile(fp, body);
+    log("Created [[" + path.basename(fp).replace(".md", "") + "]]");
+  }
+  items.splice(idx, 1);
+  saveInbox(vault, items);
+  buildIndex(vault);
+  return 0;
+}
+
+function cmdInboxDelete(index, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const items = loadInbox(vault);
+  const idx = parseInt(index) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= items.length) { error("Invalid index: " + index); return 1; }
+  const removed = items.splice(idx, 1)[0];
+  saveInbox(vault, items);
+  log("Deleted: " + removed.content.substring(0, 40));
+  return 0;
+}
+
+function cmdInboxTag(index, tag, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const items = loadInbox(vault);
+  const idx = parseInt(index) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= items.length) { error("Invalid index: " + index); return 1; }
+  items[idx].tag = tag;
+  saveInbox(vault, items);
+  log("Tagged #" + tag);
+  return 0;
+}
+
+// ============ 孤立笔记检测 ============
+
+function cmdOrphan(vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const index = loadIndex(vault);
+  const orphans = [];
+  for (const [name, info] of Object.entries(index.notes)) {
+    const hasBacklinks = (index.backlinks[name] || []).length > 0;
+    if (!hasBacklinks && info.links === 0) orphans.push({ name, info });
+  }
+  if (orphans.length === 0) {
+    log("No orphan notes detected");
+    return 0;
+  }
+  log("Found " + orphans.length + " orphan notes:");
+  for (const o of orphans) {
+    const age = Math.round((Date.now() - o.info.modified) / 86400000);
+    log("  [[" + o.name + "]]  " + (age === 0 ? "today" : age + " days ago"));
+  }
+  log("");
+  log("Use: inbox done <N>  to organize, or add [[links]] to connect");
+  return 0;
+}
+
 function cmdSearch(keyword, vaultPath) {
   const vault = getVault(vaultPath);
   if (!vault) {
@@ -814,11 +944,17 @@ function main() {
   vault graph [vault]                      知识图谱
   vault outline <笔记> [vault]             笔记大纲
   vault stat [vault]                       统计信息
-  vault kanban [vault]                     看板视图
-  vault kanban add <笔记> <列> [vault]   添加笔记到列
+  vault inbox [vault]                       Inbox 收集箱
+  vault inbox add <内容> [vault]          添加到 Inbox
+  vault inbox done <N> [笔记名] [vault]  整理第 N 条到笔记
+  vault inbox delete <N> [vault]         删除第 N 条
+  vault inbox tag <N> <标签> [vault]     标记第 N 条
+  vault orphan [vault]                     孤立笔记检测
+  vault kanban [vault]                    看板视图
+  vault kanban add <笔记> <列> [vault]  添加笔记到列
   vault kanban move <笔记> <从> <到> [vault] 移动笔记
-  vault review weekly [vault]              周回顾
-  vault review monthly [vault]             月回顾
+  vault review weekly [vault]               周回顾
+  vault review monthly [vault]            月回顾
 
 环境变量: VAULT_PATH   设置默认 vault 路径
 `);
@@ -841,6 +977,14 @@ function main() {
         if (rawNoteArgs[0] === 'move') return cmdKanbanMove(rawNoteArgs[1], rawNoteArgs[2], rawNoteArgs[3], vaultPath);
         return cmdKanban(vaultPath);
       }
+      case 'inbox': {
+        if (rawNoteArgs[0] === 'add') return cmdInboxAdd(rawNoteArgs.slice(1).join(' '), vaultPath);
+        if (rawNoteArgs[0] === 'done') return cmdInboxDone(rawNoteArgs[1] || '', rawNoteArgs[2], vaultPath);
+        if (rawNoteArgs[0] === 'delete') return cmdInboxDelete(rawNoteArgs[1] || '', vaultPath);
+        if (rawNoteArgs[0] === 'tag') return cmdInboxTag(rawNoteArgs[1] || '', rawNoteArgs[2], vaultPath);
+        return cmdInbox(vaultPath);
+      }
+      case 'orphan':    return cmdOrphan(vaultPath);
       case 'review':    return cmdReview(note || 'weekly', vaultPath);
       case 'index':     { const v = getVault(vaultPath); if (!v) { error('不存在'); return 1; } buildIndex(v); log('✅ 索引已重建'); return 0; }
       default:
