@@ -73,6 +73,31 @@ const tests = [
     const r = run('kanban');
     assert(r.ok && r.out.includes('Inbox'));
   }],
+  ['export html', () => {
+    run('new "ExportTest"');
+    const r = run('export html "ExportTest"');
+    assert(r.ok && (stripAnsi(r.out).includes('Exported')));
+  }],
+  ['books empty', () => {
+    const r = run('books');
+    assert(r.ok);
+  }],
+  ['books add', () => {
+    const r = run('books add "Sapiens" "Yuval Noah Harari" "to-read"');
+    assert(r.ok);
+  }],
+  ['books list', () => {
+    const r = run('books');
+    assert(r.ok && stripAnsi(r.out).includes('Sapiens'));
+  }],
+  ['books update', () => {
+    const r = run('books update 1 reading');
+    assert(r.ok);
+  }],
+  ['flashcard no cards', () => {
+    const r = run('flashcard "欢迎"');
+    assert(r.ok && stripAnsi(r.out).includes('No flashcards'));
+  }],
   ['weekly review', () => {
     const r = run('review weekly');
     assert(r.ok && (r.out.includes('已创建') || r.out.includes('已存在') || r.out.includes('周回顾')));
@@ -88,3 +113,4 @@ console.log('\n========================================');
 console.log('  Result: ' + passed + ' passed, ' + failed + ' failed');
 console.log('========================================\n');
 if (failed > 0) process.exit(1);
+console.log("All P2 tests complete!");

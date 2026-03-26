@@ -1103,6 +1103,271 @@ function cmdGoalSet(wordsGoal, notesGoal, vaultPath) {
 }
 
 
+
+// ============ Markdown 导出 HTML ============
+
+function mdToHtml(md) {
+  let html = md
+    // 标题
+    .replace(/^###### (.+)$/gm, '<h6>$1</h6>')
+    .replace(/^##### (.+)$/gm, '<h5>$1</h5>')
+    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // 粗体斜体
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    // 代码
+    .replace(/```([\s\S]+?)```/g, '<pre><code>$1</code></pre>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    // 链接 [[note]] -> <a>
+    .replace(/\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g, '<a href="#">$1</a>')
+    // 图片
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2"/>')
+    // 链接 [text](url)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+    // 引用
+    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    // 列表
+    .replace(/^[\-\*] (.+)$/gm, '<li>$1</li>')
+    // 水平线
+    .replace(/^---$/gm, '<hr/>')
+    // 段落：非已有标签的行用 <p>
+    .split('\n\n')
+    .map(p => {
+      p = p.trim();
+      if (!p) return '';
+      if (p.startsWith('<')) return p;
+      return '<p>' + p.replace(/\n/g, '<br/>') + '</p>';
+    })
+    .join('\n');
+  return html;
+}
+
+function buildHtmlPage(title, body, css) {
+  return '<!DOCTYPE html>\n' +
+    '<html lang="zh-CN">\n' +
+    '<head>\n' +
+    '<meta charset="UTF-8">\n' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+    '<title>' + title + '</title>\n' +
+    '<style>\n' +
+    (css || 'body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6} h1,h2,h3{border-bottom:1px solid #eee;padding-bottom:8px} pre{background:#f5f5f5;padding:12px;border-radius:4px;overflow-x:auto} code{background:#f5f5f5;padding:2px 6px;border-radius:3px} blockquote{border-left:4px solid #ddd;margin:0;padding-left:16px;color:#666} a{color:#0066cc} img{max-width:100%} li{display:block}') +
+    '\n</style>\n' +
+    '</head>\n<body>\n' +
+    body +
+    '\n</body>\n</html>';
+}
+
+function cmdExportHtml(noteName, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const index = loadIndex(vault);
+
+  if (!noteName) {
+    error("Usage: vault export html <note> [vault]"); return 1;
+  }
+
+  const info = index.notes[noteName];
+  if (!info) { error("Note not found: " + noteName); return 1; }
+
+  const fp = path.join(vault.root, info.path);
+  const md = readFile(fp);
+  if (!md) { error("Cannot read note file"); return 1; }
+
+  // 去掉 frontmatter
+  let content = md;
+  if (md.startsWith('---')) {
+    const end = md.indexOf('---', 3);
+    if (end > 0 && end < 200) content = md.substring(end + 3);
+  }
+
+  const htmlBody = mdToHtml(content.trim());
+  const html = buildHtmlPage(noteName, htmlBody, null);
+  const outPath = path.join(vault.root, info.path.replace('.md', '.html'));
+  writeFile(outPath, html);
+
+  log("Exported: " + outPath);
+  return 0;
+}
+
+// ============ 阅读清单 ============
+
+const BOOKS_FILE = 'books.json';
+
+function loadBooks(vault) {
+  const fp = path.join(vault.obsidianDir, BOOKS_FILE);
+  const content = readFile(fp);
+  if (!content) return [];
+  try { const p = JSON.parse(content); return Array.isArray(p) ? p : (p.books || []); } catch { return []; }
+}
+
+function saveBooks(vault, books) {
+  ensureDir(vault.obsidianDir);
+  writeFile(path.join(vault.obsidianDir, BOOKS_FILE), JSON.stringify({ version: 1, books }, null, 2));
+}
+
+function cmdBooks(vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const books = loadBooks(vault);
+
+  const reading = books.filter(b => b.status === 'reading');
+  const toRead = books.filter(b => b.status === 'to-read');
+  const done = books.filter(b => b.status === 'done');
+
+  log("Books (" + books.length + " total)");
+  if (reading.length > 0) {
+    log("\n  📖 Reading (" + reading.length + "):");
+    for (const b of reading) log("    - " + b.title + " - " + b.author);
+  }
+  if (toRead.length > 0) {
+    log("\n  📚 To Read (" + toRead.length + "):");
+    for (const b of toRead) log("    - " + b.title + " - " + b.author);
+  }
+  if (done.length > 0) {
+    log("\n  ✅ Done (" + done.length + "):");
+    for (const b of done) log("    - " + b.title + " - " + b.author);
+  }
+  log("\n  vault books add <title> <author> [to-read|reading|done]");
+  log("  vault books update <N> <status>");
+  log("  vault books delete <N>");
+  return 0;
+}
+
+function cmdBooksAdd(args, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  // args: [title, author, status?]
+  if (!args || args.length < 2) {
+    error("Usage: vault books add <title> <author> [status]"); return 1;
+  }
+  const title = args[0];
+  const author = args[1];
+  const status = args[2] || 'to-read';
+  if (!['to-read', 'reading', 'done'].includes(status)) {
+    error("Status must be: to-read, reading, done"); return 1;
+  }
+  const books = loadBooks(vault);
+  books.push({ title, author, status, added: new Date().toISOString() });
+  saveBooks(vault, books);
+  log("Added: " + title + " - " + author + " (" + status + ")");
+  return 0;
+}
+
+function cmdBooksUpdate(indexStr, status, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const books = loadBooks(vault);
+  const idx = parseInt(indexStr) - 1;
+  if (idx < 0 || idx >= books.length) { error("Invalid index: " + indexStr); return 1; }
+  if (!['to-read', 'reading', 'done'].includes(status)) {
+    error("Status must be: to-read, reading, done"); return 1;
+  }
+  books[idx].status = status;
+  saveBooks(vault, books);
+  log("Updated: " + books[idx].title + " -> " + status);
+  return 0;
+}
+
+function cmdBooksDelete(indexStr, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const books = loadBooks(vault);
+  const idx = parseInt(indexStr) - 1;
+  if (idx < 0 || idx >= books.length) { error("Invalid index: " + indexStr); return 1; }
+  const removed = books.splice(idx, 1)[0];
+  saveBooks(vault, books);
+  log("Deleted: " + removed.title);
+  return 0;
+}
+
+// ============ 生成闪卡 (Anki) ============
+
+function extractFlashcards(md) {
+  // 从笔记中提取闪卡内容
+  // 格式1: Q: ... A: ...
+  // 格式2: ## 问 | 答  ( Obsidian 表格)
+  const cards = [];
+
+  // Q/A 格式
+  const qaRegex = /Q:\s*(.+?)\nA:\s*(.+?)(?=\n\n|$)/gs;
+  let m;
+  while ((m = qaRegex.exec(md)) !== null) {
+    cards.push({ front: m[1].trim(), back: m[2].trim() });
+  }
+
+  // 表格格式: 问 | 答
+  const lines = md.split('\n');
+  for (const line of lines) {
+    const parts = line.split('|');
+    if (parts.length >= 3) {
+      const front = parts[1] ? parts[1].trim() : '';
+      const back = parts[2] ? parts[2].trim() : '';
+      if (front && back && !front.startsWith('#') && front !== '问' && !front.includes('---')) {
+        // 避免重复（可能和 QA 格式重复）
+        if (!cards.find(c => c.front === front && c.back === back)) {
+          cards.push({ front, back });
+        }
+      }
+    }
+  }
+
+  return cards;
+}
+
+function cmdFlashcard(noteName, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  const index = loadIndex(vault);
+
+  if (!noteName) {
+    error("Usage: vault flashcard <note> [vault]"); return 1;
+  }
+
+  const info = index.notes[noteName];
+  if (!info) { error("Note not found: " + noteName); return 1; }
+
+  const fp = path.join(vault.root, info.path);
+  const md = readFile(fp);
+  if (!md) { error("Cannot read note"); return 1; }
+
+  const cards = extractFlashcards(md);
+
+  if (cards.length === 0) {
+    log("No flashcards found in [[" + noteName + "]]");
+    log("");
+    log("Add flashcards using format:");
+    log("  Q: Your question");
+    log("  A: The answer");
+    log("");
+    log("Or use a table:");
+    log("  | 问 | 答 |");
+    log("  |----|----|");
+    log("  | 问题 | 答案 |");
+    return 0;
+  }
+
+  // 输出为 Anki 导入格式（TSV: front<tab>back<newline>）
+  const tsv = cards.map(c => c.front + "\t" + c.back).join("\n");
+  const outPath = path.join(vault.obsidianDir, noteName + '-flashcards.txt');
+  writeFile(outPath, tsv);
+
+  log("Generated " + cards.length + " flashcards: " + outPath);
+  log("");
+  log("To import to Anki:");
+  log("  1. Open Anki > File > Import");
+  log("  2. Select: " + outPath);
+  log("  3. Choose 'Tab' as separator");
+  log("  4. Select or create a deck");
+  return 0;
+}
+
+
 function cmdStat(vaultPath) {
   const vault = getVault(vaultPath);
   if (!vault) {
@@ -1174,8 +1439,14 @@ function main() {
   vault inbox done <N> [笔记名] [vault]  整理第 N 条到笔记
   vault inbox delete <N> [vault]         删除第 N 条
   vault inbox tag <N> <标签> [vault]     标记第 N 条
-  vault streak [vault]                    连续打卡天数
-  vault health [vault]                   知识库健康分
+  vault export html <笔记> [vault]    导出为 HTML
+  vault books [vault]                    阅读清单
+  vault books add <书名> <作者> [状态] 添加书籍
+  vault books update <N> <状态> [vault] 更新状态
+  vault books delete <N> [vault]        删除书籍
+  vault flashcard <笔记> [vault]         生成 Anki 闪卡
+  vault streak [vault]                   连续打卡天数
+  vault health [vault]                  知识库健康分
   vault goal [vault]                    写作目标进度
   vault goal set <字数> <篇数> [vault] 设置目标
   vault orphan [vault]                   孤立笔记检测
@@ -1213,6 +1484,17 @@ function main() {
         if (rawNoteArgs[0] === 'tag') return cmdInboxTag(rawNoteArgs[1] || '', rawNoteArgs[2], vaultPath);
         return cmdInbox(vaultPath);
       }
+      case 'export': {
+        if (rawNoteArgs[0] === 'html') return cmdExportHtml(rawNoteArgs[1], vaultPath);
+        error("Usage: vault export html <note> [vault]"); return 1;
+      }
+      case 'books': {
+        if (rawNoteArgs[0] === 'add') return cmdBooksAdd(rawNoteArgs.slice(1), vaultPath);
+        if (rawNoteArgs[0] === 'update') return cmdBooksUpdate(rawNoteArgs[1] || '', rawNoteArgs[2] || '', vaultPath);
+        if (rawNoteArgs[0] === 'delete') return cmdBooksDelete(rawNoteArgs[1] || '', vaultPath);
+        return cmdBooks(vaultPath);
+      }
+      case 'flashcard': return cmdFlashcard(note, vaultPath);
       case 'streak':    return cmdStreak(vaultPath);
       case 'health':    return cmdHealth(vaultPath);
       case 'goal': {
