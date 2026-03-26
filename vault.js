@@ -490,6 +490,242 @@ function cmdOutline(noteName, vaultPath) {
   return 0;
 }
 
+// ============ 看板视图 ============
+
+const KANBAN_COLUMNS = ['Inbox', 'Next', 'Doing', 'Done', 'Archive'];
+const KANBAN_FILE = 'kanban.json';
+
+function loadKanban(vault) {
+  const fp = path.join(vault.obsidianDir, KANBAN_FILE);
+  const content = readFile(fp);
+  if (!content) return {};
+  try { return JSON.parse(content); } catch { return {}; }
+}
+
+function saveKanban(vault, data) {
+  ensureDir(vault.obsidianDir);
+  writeFile(path.join(vault.obsidianDir, KANBAN_FILE), JSON.stringify(data, null, 2));
+}
+
+function cmdKanban(vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error(`Vault 不存在: ${vaultPath}`); return 1; }
+  const kanban = loadKanban(vault);
+
+  log('🗺️  看板视图 — ' + vaultPath + '\n');
+
+  for (const col of KANBAN_COLUMNS) {
+    const items = kanban[col] || [];
+    const color = col === 'Inbox' ? '📥' : col === 'Next' ? '📌' : col === 'Doing' ? '🔨' : col === 'Done' ? '✅' : '📦';
+    log(`  ${color} ${col} (${items.length})`);
+    if (items.length === 0) {
+      log(`      —`);
+    } else {
+      for (const item of items) {
+        log(`      • ${item.note}`);
+        if (item.tag) log(`        🏷️ #${item.tag}`);
+        if (item.due) log(`        📅 ${item.due}`);
+      }
+    }
+    log('');
+  }
+
+  log('  用法: vault kanban add <note> <col>    添加笔记到列');
+  log('  用法: vault kanban move <note> <from> <to> 移动笔记');
+  log('  用法: vault kanban done <note>         移到 Done');
+  return 0;
+}
+
+function cmdKanbanAdd(noteName, col, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error(`Vault 不存在: ${vaultPath}`); return 1; }
+
+  const index = loadIndex(vault);
+  if (!index.notes[noteName]) {
+    error(`笔记不存在: ${noteName}`);
+    return 1;
+  }
+  if (!KANBAN_COLUMNS.includes(col)) {
+    error(`无效列名: ${col}，可选: ${KANBAN_COLUMNS.join(', ')}`);
+    return 1;
+  }
+
+  const kanban = loadKanban(vault);
+  if (!kanban[col]) kanban[col] = [];
+  kanban[col].push({ note: noteName, added: new Date().toISOString() });
+  saveKanban(vault, kanban);
+
+  log(`✅ 已添加 "${noteName}" → ${col}`);
+  return 0;
+}
+
+function cmdKanbanMove(noteName, fromCol, toCol, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error(`Vault 不存在: ${vaultPath}`); return 1; }
+
+  const kanban = loadKanban(vault);
+  const from = kanban[fromCol] || [];
+  const idx = from.findIndex(i => i.note === noteName);
+
+  if (idx < 0) {
+    error(`"${noteName}" 不在 ${fromCol} 列`);
+    return 1;
+  }
+
+  const [item] = from.splice(idx, 1);
+  if (!kanban[toCol]) kanban[toCol] = [];
+  kanban[toCol].push(item);
+  saveKanban(vault, kanban);
+
+  log(`✅ 已移动 "${noteName}" ${fromCol} → ${toCol}`);
+  return 0;
+}
+
+// ============ 周期回顾 ============
+
+function getWeekRange(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // 周一
+  const monday = new Date(d.setDate(diff));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    start: monday.toISOString().split('T')[0],
+    end: sunday.toISOString().split('T')[0],
+  };
+}
+
+function getMonthRange(year, month) {
+  const start = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const end = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+  return { start, end };
+}
+
+function getNotesInRange(vault, start, end) {
+  const index = loadIndex(vault);
+  const startMs = new Date(start).getTime();
+  const endMs = new Date(end + 'T23:59:59').getTime();
+
+  return Object.entries(index.notes)
+    .filter(([_, info]) => info.modified >= startMs && info.modified <= endMs)
+    .map(([name, info]) => ({ name, ...info }));
+}
+
+function buildReview(vault, title, dateRange, type) {
+  const { start, end } = dateRange;
+  const notes = getNotesInRange(vault, start, end);
+
+  // 统计
+  const byTag = {};
+  const byDay = {};
+  for (const note of notes) {
+    for (const tag of note.tags) {
+      if (!byTag[tag]) byTag[tag] = 0;
+      byTag[tag]++;
+    }
+    const day = new Date(note.modified).toISOString().split('T')[0];
+    byDay[day] = (byDay[day] || 0) + 1;
+  }
+
+  const topTags = Object.entries(byTag).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const days = Object.keys(byDay).sort();
+  const totalWords = notes.reduce((s, n) => s + Math.round(n.size / 5), 0); // 估算字数
+
+  const body = [
+    `---`,
+    `type: ${type}`,
+    `date: ${title}`,
+    `created: ${new Date().toISOString()}`,
+    `---`,
+    ``,
+    `# 📊 ${title}`,
+    ``,
+    `## 📈 概览`,
+    ``,
+    `| 指标 | 数值 |`,
+    `|------|------|`,
+    `| 笔记数量 | ${notes.length} |`,
+    `| 活跃天数 | ${days.length} |`,
+    `| 估算字数 | ~${totalWords} |`,
+    ``,
+    `## 🏷️ Top 标签`,
+    ``,
+  ];
+
+  for (const [tag, count] of topTags) {
+    body.push(`- #${tag} (${count})`);
+  }
+
+  body.push(``);
+  body.push(`## 📅 每日记录`);
+  body.push(``);
+  for (const day of days) {
+    const count = byDay[day];
+    const emoji = count >= 5 ? '🔥' : count >= 2 ? '✨' : '💤';
+    body.push(`${emoji} ${day}: ${count} 篇`);
+  }
+
+  body.push(``);
+  body.push(`## 📝 本周期笔记`);
+  body.push(``);
+  for (const note of notes.slice(0, 20)) {
+    body.push(`- [[${note.name}]]`);
+  }
+
+  body.push(``);
+  body.push(`## 🤔 反思`);
+  body.push(``);
+  body.push(`**本周最大的收获是什么？**`);
+  body.push(``);
+  body.push(`**有什么需要改进的？**`);
+  body.push(``);
+  body.push(`**下周的重点是什么？**`);
+
+  return body.join('\n');
+}
+
+function cmdReview(period, vaultPath) {
+  const vault = getVault(vaultPath);
+  if (!vault) { error(`Vault 不存在: ${vaultPath}`); return 1; }
+
+  let title, range, type, fileName;
+
+  if (period === 'weekly' || period === 'week' || period === 'w') {
+    const { start, end } = getWeekRange(new Date());
+    title = `周回顾 ${start} ~ ${end}`;
+    range = { start, end };
+    type = 'weekly-review';
+    fileName = `weekly-${end}.md`;
+  } else if (period === 'monthly' || period === 'month' || period === 'm') {
+    const now = new Date();
+    const { start, end } = getMonthRange(now.getFullYear(), now.getMonth() + 1);
+    title = `${now.getFullYear()}年${now.getMonth() + 1}月回顾`;
+    range = { start, end };
+    type = 'monthly-review';
+    fileName = `monthly-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}.md`;
+  } else {
+    error(`用法: vault review weekly|monthly`);
+    error(`示例: vault review weekly`);
+    return 1;
+  }
+
+  const fp = path.join(vault.notesDir, fileName);
+  if (fs.existsSync(fp)) {
+    log(`📋 回顾已存在: ${fp}`);
+    log(`重新生成请先删除: rm "${fp}"`);
+    return 0;
+  }
+
+  const content = buildReview(vault, title, range, type);
+  writeFile(fp, content);
+  buildIndex(vault); // 重建索引，加入回顾笔记
+
+  log(`✅ ${title} 已创建: ${fp}`);
+  return 0;
+}
+
 function cmdStat(vaultPath) {
   const vault = getVault(vaultPath);
   if (!vault) {
@@ -521,52 +757,55 @@ function cmdStat(vaultPath) {
   return 0;
 }
 
+
 // ============ 主入口 ============
 
 function main() {
-  const [, , cmd, arg1, arg2] = process.argv;
+  const args = process.argv.slice(2);
+  const cmd = args[0];
+  const restArgs = args.slice(1);
 
-  // 命令格式：
-  //   vault init [path]
-  //   vault new <note> [vault]
-  //   vault daily [vault]
-  //   vault search <word> [vault]
-  //   vault tags [vault]
-  //   vault backlinks <note> [vault]
-  //   vault graph [vault]
-  //   vault outline <note> [vault]
-  //   vault stat [vault]
-  //
-  // 有 arg2 → arg2 是 vault path，arg1 是 note/keyword
-  // 无 arg2 → vault 用默认值，arg1 是 note/keyword
+  // vault path：最后一个以 / 或 ~ 开头的参数
+  let vaultPath = process.env.VAULT_PATH || DEFAULT_VAULT;
+  let rawNoteArgs = restArgs;
+  const lastArg = restArgs[restArgs.length - 1];
+  if (lastArg && (lastArg.startsWith('/') || lastArg.startsWith('~'))) {
+    vaultPath = lastArg;
+    rawNoteArgs = restArgs.slice(0, -1);
+  }
 
-  const vaultPath = arg2 || (arg1 && (arg1.startsWith('/') || arg1.startsWith('~')) ? arg1 : process.env.VAULT_PATH || DEFAULT_VAULT);
-  const note = (arg2 && arg1) ? arg1 : (arg1 && !arg1.startsWith('/') && !arg1.startsWith('~') ? arg1 : undefined);
+  const note  = rawNoteArgs[0];
+  const col   = rawNoteArgs[1];
+  const toCol = rawNoteArgs[2];
 
   if (!cmd) {
     console.log(`
 🗄️  Obsidian Vault — 本地知识库
 
 用法:
-  vault init [path]              初始化知识库
-  vault new <名称> [path]       新建笔记
-  vault daily [path]            今日笔记
-  vault search <关键词> [path]  搜索
-  vault tags [path]             列出标签
-  vault backlinks <笔记> [path] 查看反向链接
-  vault graph [path]            知识图谱
-  vault outline <笔记> [path]   笔记大纲
-  vault stat [path]             统计信息
+  vault init [path]                          初始化知识库
+  vault new <名称> [vault]                 新建笔记
+  vault daily [vault]                      今日笔记
+  vault search <关键词> [vault]            搜索
+  vault tags [vault]                       列出标签
+  vault backlinks <笔记> [vault]           查看反向链接
+  vault graph [vault]                      知识图谱
+  vault outline <笔记> [vault]             笔记大纲
+  vault stat [vault]                       统计信息
+  vault kanban [vault]                     看板视图
+  vault kanban add <笔记> <列> [vault]   添加笔记到列
+  vault kanban move <笔记> <从> <到> [vault] 移动笔记
+  vault review weekly [vault]              周回顾
+  vault review monthly [vault]             月回顾
 
-环境变量:
-  VAULT_PATH   设置默认 vault 路径
+环境变量: VAULT_PATH   设置默认 vault 路径
 `);
     return 0;
   }
 
   try {
     switch (cmd) {
-      case 'init':      return cmdInit(arg1 || vaultPath);
+      case 'init':      return cmdInit(note || vaultPath);
       case 'new':       return cmdNew(note, vaultPath);
       case 'daily':     return cmdDaily(vaultPath);
       case 'search':    return cmdSearch(note, vaultPath);
@@ -575,15 +814,18 @@ function main() {
       case 'graph':     return cmdGraph(vaultPath);
       case 'outline':   return cmdOutline(note, vaultPath);
       case 'stat':      return cmdStat(vaultPath);
+      case 'kanban': {
+        if (rawNoteArgs[0] === 'add')  return cmdKanbanAdd(rawNoteArgs[1], rawNoteArgs[2], vaultPath);
+        if (rawNoteArgs[0] === 'move') return cmdKanbanMove(rawNoteArgs[1], rawNoteArgs[2], rawNoteArgs[3], vaultPath);
+        return cmdKanban(vaultPath);
+      }
+      case 'review':    return cmdReview(note || 'weekly', vaultPath);
       case 'index':     { const v = getVault(vaultPath); if (!v) { error('不存在'); return 1; } buildIndex(v); log('✅ 索引已重建'); return 0; }
       default:
-        error(`未知命令: ${cmd}`);
-        error(`运行 vault 查看帮助`);
-        return 1;
+        error('未知命令: ' + cmd); error('运行 vault 查看帮助'); return 1;
     }
   } catch (e) {
-    error(`执行失败: ${e.message}`);
-    return 1;
+    error('执行失败: ' + e.message); return 1;
   }
 }
 

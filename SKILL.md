@@ -15,7 +15,12 @@
 7. **vault backlinks <笔记名>** — 查看反向链接
 8. **vault graph** — 生成文本图谱
 9. **vault outline <笔记名>** — 提取大纲
-10. **vault export** — 导出为 HTML/PDF
+10. **vault stat** — 知识库统计
+11. **vault kanban** — 看板视图
+12. **vault kanban add <笔记> <列>** — 添加笔记到看板列
+13. **vault kanban move <笔记> <从> <到>** — 移动看板笔记
+14. **vault review weekly** — 周回顾（自动统计+模板）
+15. **vault review monthly** — 月回顾（自动统计+模板）
 
 ### Obsidian 兼容
 - ✅ `[[双向链接]]` 语法
@@ -29,17 +34,20 @@
 ```
 vault/
 ├── .obsidian/          # 元数据（自动生成）
-│   └── index.json      # 标签索引、反向链接索引
+│   ├── index.json      # 标签索引、反向链接索引
+│   └── kanban.json     # 看板状态
 ├── daily/              # 每日笔记
 │   └── 2026-03-26.md
-└── notes/              # 普通笔记
-    └── 我的想法.md
+├── notes/              # 普通笔记
+│   ├── 欢迎.md
+│   └── weekly-2026-03-29.md  # 周回顾
+└── ...其他笔记
 ```
 
 ## 依赖
 
-无外部依赖，纯 Node.js 文件操作。
+无外部依赖，纯 Node.js 文件操作（v22+）。
 
 ## 使用方式
 
-用户说"新建笔记"、"搜索笔记"、"今日日记"、"查看反向链接"等时触发。
+用户说"新建笔记"、"搜索笔记"、"今日日记"、"查看反向链接"、看板、周回顾等时触发。
