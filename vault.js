@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Obsidian Vault — QClaw Skill
+ * Syzygy - Obsidian-style KB — QClaw Skill
  * 复刻 Obsidian 核心特性的本地知识库
  * 
  * 用法：
@@ -29,7 +29,7 @@ const DAILY_DIR = 'daily';
 // ============ 工具函数 ============
 
 function log(...args) {
-  console.log('[vault]', ...args);
+  console.log('[sz]', ...args);
 }
 
 function error(...args) {
@@ -196,20 +196,20 @@ function cmdInit(vaultPath) {
 created: ${new Date().toISOString()}
 ---
 
-# 欢迎使用 Obsidian Vault
+# 欢迎使用 Syzygy - Obsidian-style KB
 
 这是一个本地优先的知识库，灵感来自 Obsidian。
 
 ## 快速开始
 
-- 用 \`vault new <名称>\` 创建笔记
-- 用 \`vault daily\` 写日记
+- 用 \`sz new <名称>\` 创建笔记
+- 用 \`sz daily\` 写日记
 - 用 \`[[双向链接]]\` 连接笔记
 - 用 \`#标签\` 标记内容
 
 ## 核心特性
 
-- **双向链接** — [[欢迎使用 Obsidian Vault]]
+- **双向链接** — [[欢迎使用 Syzygy - Obsidian-style KB]]
 - **标签** — #入门 #欢迎
 - **每日笔记** — 自动按日期归档
 - **本地存储** — Markdown 格式，永不锁定
@@ -229,7 +229,7 @@ function cmdNew(noteName, vaultPath) {
   const vault = getVault(vaultPath);
   if (!vault) {
     error(`Vault 不存在: ${vaultPath}`);
-    error(`先运行: vault init ${vaultPath}`);
+    error(`先运行: sz init ${vaultPath}`);
     return 1;
   }
 
@@ -320,10 +320,10 @@ function saveInbox(vault, items) {
 
 function cmdInbox(vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const items = loadInbox(vault);
   if (items.length === 0) {
-    log("Inbox is empty. Use: vault inbox add <content>");
+    log("Inbox is empty. Use: sz inbox add <content>");
     return 0;
   }
   log("Inbox (" + items.length + " items)");
@@ -343,7 +343,7 @@ function cmdInbox(vaultPath) {
 
 function cmdInboxAdd(content, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   if (!content || content.trim() === "") { error("Content cannot be empty"); return 1; }
   const items = loadInbox(vault);
   items.push({ content: content.trim(), created: new Date().toISOString(), tag: null });
@@ -354,7 +354,7 @@ function cmdInboxAdd(content, vaultPath) {
 
 function cmdInboxDone(index, noteName, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const items = loadInbox(vault);
   const idx = parseInt(index) - 1;
   if (isNaN(idx) || idx < 0 || idx >= items.length) { error("Invalid index: " + index); return 1; }
@@ -384,7 +384,7 @@ function cmdInboxDone(index, noteName, vaultPath) {
 
 function cmdInboxDelete(index, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const items = loadInbox(vault);
   const idx = parseInt(index) - 1;
   if (isNaN(idx) || idx < 0 || idx >= items.length) { error("Invalid index: " + index); return 1; }
@@ -396,7 +396,7 @@ function cmdInboxDelete(index, vaultPath) {
 
 function cmdInboxTag(index, tag, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const items = loadInbox(vault);
   const idx = parseInt(index) - 1;
   if (isNaN(idx) || idx < 0 || idx >= items.length) { error("Invalid index: " + index); return 1; }
@@ -410,7 +410,7 @@ function cmdInboxTag(index, tag, vaultPath) {
 
 function cmdOrphan(vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const index = loadIndex(vault);
   const orphans = [];
   for (const [name, info] of Object.entries(index.notes)) {
@@ -666,9 +666,9 @@ function cmdKanban(vaultPath) {
     log('');
   }
 
-  log('  用法: vault kanban add <note> <col>    添加笔记到列');
-  log('  用法: vault kanban move <note> <from> <to> 移动笔记');
-  log('  用法: vault kanban done <note>         移到 Done');
+  log('  用法: sz kanban add <note> <col>    添加笔记到列');
+  log('  用法: sz kanban move <note> <from> <to> 移动笔记');
+  log('  用法: sz kanban done <note>         移到 Done');
   return 0;
 }
 
@@ -858,8 +858,8 @@ function cmdReview(period, vaultPath) {
     type = 'monthly-review';
     fileName = `monthly-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}.md`;
   } else {
-    error(`用法: vault review weekly|monthly`);
-    error(`示例: vault review weekly`);
+    error(`用法: sz review weekly|monthly`);
+    error(`示例: sz review weekly`);
     return 1;
   }
 
@@ -883,14 +883,14 @@ function cmdReview(period, vaultPath) {
 
 function cmdStreak(vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
 
   const index = loadIndex(vault);
   const dailyDir = path.join(vault.dailyDir);
 
   // 收集所有 daily 笔记的修改时间
   if (!fs.existsSync(dailyDir)) {
-    log("No daily notes yet. Use: vault daily");
+    log("No daily notes yet. Use: sz daily");
     return 0;
   }
 
@@ -955,7 +955,7 @@ function cmdStreak(vaultPath) {
 
 function cmdHealth(vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const index = loadIndex(vault);
 
   const notes = Object.values(index.notes);
@@ -1056,7 +1056,7 @@ function saveGoals(vault, goals) {
 
 function cmdGoal(vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const goals = loadGoals(vault);
 
   const today = new Date().toISOString().split('T')[0];
@@ -1087,13 +1087,13 @@ function cmdGoal(vaultPath) {
   else log("  Keep going! " + (goals.wordsGoal - todayWords) + " words to go.");
 
   log("");
-  log("  Set goals: vault goal set <words> <notes>");
+  log("  Set goals: sz goal set <words> <notes>");
   return 0;
 }
 
 function cmdGoalSet(wordsGoal, notesGoal, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   let w = parseInt(wordsGoal); if (isNaN(w) || w <= 0) w = 500;
   let n = parseInt(notesGoal); if (isNaN(n) || n <= 0) n = 1;
   const goals = { wordsGoal: w, notesGoal: n, period: 'daily' };
@@ -1165,11 +1165,11 @@ function buildHtmlPage(title, body, css) {
 
 function cmdExportHtml(noteName, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const index = loadIndex(vault);
 
   if (!noteName) {
-    error("Usage: vault export html <note> [vault]"); return 1;
+    error("Usage: sz export html <note> [sz]"); return 1;
   }
 
   const info = index.notes[noteName];
@@ -1213,7 +1213,7 @@ function saveBooks(vault, books) {
 
 function cmdBooks(vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const books = loadBooks(vault);
 
   const reading = books.filter(b => b.status === 'reading');
@@ -1233,18 +1233,18 @@ function cmdBooks(vaultPath) {
     log("\n  ✅ Done (" + done.length + "):");
     for (const b of done) log("    - " + b.title + " - " + b.author);
   }
-  log("\n  vault books add <title> <author> [to-read|reading|done]");
-  log("  vault books update <N> <status>");
-  log("  vault books delete <N>");
+  log("\n  sz books add <title> <author> [to-read|reading|done]");
+  log("  sz books update <N> <status>");
+  log("  sz books delete <N>");
   return 0;
 }
 
 function cmdBooksAdd(args, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   // args: [title, author, status?]
   if (!args || args.length < 2) {
-    error("Usage: vault books add <title> <author> [status]"); return 1;
+    error("Usage: sz books add <title> <author> [status]"); return 1;
   }
   const title = args[0];
   const author = args[1];
@@ -1261,7 +1261,7 @@ function cmdBooksAdd(args, vaultPath) {
 
 function cmdBooksUpdate(indexStr, status, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const books = loadBooks(vault);
   const idx = parseInt(indexStr) - 1;
   if (idx < 0 || idx >= books.length) { error("Invalid index: " + indexStr); return 1; }
@@ -1276,7 +1276,7 @@ function cmdBooksUpdate(indexStr, status, vaultPath) {
 
 function cmdBooksDelete(indexStr, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const books = loadBooks(vault);
   const idx = parseInt(indexStr) - 1;
   if (idx < 0 || idx >= books.length) { error("Invalid index: " + indexStr); return 1; }
@@ -1322,11 +1322,11 @@ function extractFlashcards(md) {
 
 function cmdFlashcard(noteName, vaultPath) {
   const vault = getVault(vaultPath);
-  if (!vault) { error("Vault not found: " + vaultPath); return 1; }
+  if (!vault) { error("sz: vault not found: " + vaultPath); return 1; }
   const index = loadIndex(vault);
 
   if (!noteName) {
-    error("Usage: vault flashcard <note> [vault]"); return 1;
+    error("Usage: sz flashcard <note> [sz]"); return 1;
   }
 
   const info = index.notes[noteName];
@@ -1422,39 +1422,39 @@ function main() {
 
   if (!cmd) {
     console.log(`
-🗄️  Obsidian Vault — 本地知识库
+🗄️  Syzygy - Obsidian-style KB — 本地知识库
 
 用法:
-  vault init [path]                          初始化知识库
-  vault new <名称> [vault]                 新建笔记
-  vault daily [vault]                      今日笔记
-  vault search <关键词> [vault]            搜索
-  vault tags [vault]                       列出标签
-  vault backlinks <笔记> [vault]           查看反向链接
-  vault graph [vault]                      知识图谱
-  vault outline <笔记> [vault]             笔记大纲
-  vault stat [vault]                       统计信息
-  vault inbox [vault]                       Inbox 收集箱
-  vault inbox add <内容> [vault]          添加到 Inbox
-  vault inbox done <N> [笔记名] [vault]  整理第 N 条到笔记
-  vault inbox delete <N> [vault]         删除第 N 条
-  vault inbox tag <N> <标签> [vault]     标记第 N 条
-  vault export html <笔记> [vault]    导出为 HTML
-  vault books [vault]                    阅读清单
-  vault books add <书名> <作者> [状态] 添加书籍
-  vault books update <N> <状态> [vault] 更新状态
-  vault books delete <N> [vault]        删除书籍
-  vault flashcard <笔记> [vault]         生成 Anki 闪卡
-  vault streak [vault]                   连续打卡天数
-  vault health [vault]                  知识库健康分
-  vault goal [vault]                    写作目标进度
-  vault goal set <字数> <篇数> [vault] 设置目标
-  vault orphan [vault]                   孤立笔记检测
-  vault kanban [vault]                    看板视图
-  vault kanban add <笔记> <列> [vault]  添加笔记到列
-  vault kanban move <笔记> <从> <到> [vault] 移动笔记
-  vault review weekly [vault]               周回顾
-  vault review monthly [vault]            月回顾
+  sz init [path]                          初始化知识库
+  sz new <名称> [sz]                 新建笔记
+  sz daily [sz]                      今日笔记
+  sz search <关键词> [sz]            搜索
+  sz tags [sz]                       列出标签
+  sz backlinks <笔记> [sz]           查看反向链接
+  sz graph [sz]                      知识图谱
+  sz outline <笔记> [sz]             笔记大纲
+  sz stat [sz]                       统计信息
+  sz inbox [sz]                       Inbox 收集箱
+  sz inbox add <内容> [sz]          添加到 Inbox
+  sz inbox done <N> [笔记名] [sz]  整理第 N 条到笔记
+  sz inbox delete <N> [sz]         删除第 N 条
+  sz inbox tag <N> <标签> [sz]     标记第 N 条
+  sz export html <笔记> [sz]    导出为 HTML
+  sz books [sz]                    阅读清单
+  sz books add <书名> <作者> [状态] 添加书籍
+  sz books update <N> <状态> [sz] 更新状态
+  sz books delete <N> [sz]        删除书籍
+  sz flashcard <笔记> [sz]         生成 Anki 闪卡
+  sz streak [sz]                   连续打卡天数
+  sz health [sz]                  知识库健康分
+  sz goal [sz]                    写作目标进度
+  sz goal set <字数> <篇数> [sz] 设置目标
+  sz orphan [sz]                   孤立笔记检测
+  sz kanban [sz]                    看板视图
+  sz kanban add <笔记> <列> [sz]  添加笔记到列
+  sz kanban move <笔记> <从> <到> [sz] 移动笔记
+  sz review weekly [sz]               周回顾
+  sz review monthly [sz]            月回顾
 
 环境变量: VAULT_PATH   设置默认 vault 路径
 `);
@@ -1486,7 +1486,7 @@ function main() {
       }
       case 'export': {
         if (rawNoteArgs[0] === 'html') return cmdExportHtml(rawNoteArgs[1], vaultPath);
-        error("Usage: vault export html <note> [vault]"); return 1;
+        error("Usage: sz export html <note> [sz]"); return 1;
       }
       case 'books': {
         if (rawNoteArgs[0] === 'add') return cmdBooksAdd(rawNoteArgs.slice(1), vaultPath);
