@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/Users/lanaiconan/.local/bin/node
 /**
  * Syzygy - Obsidian-style KB — QClaw Skill
  * 复刻 Obsidian 核心特性的本地知识库
